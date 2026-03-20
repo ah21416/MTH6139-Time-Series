@@ -1,0 +1,219 @@
+---
+title: "MTH6139 Time Series" 
+subtitle: "Coursework 1 -- Retail Sales Time Series" 
+author: "SHAMIL PATEL" 
+date: "Spring term 2026" 
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab 
+    highlight: tango
+---
+ 
+```{r, echo=FALSE}
+# This code will display the QMUL logo at the top right of the page
+# Do not change this code
+htmltools::img(src = knitr::image_uri("images/QMlogo.png"),
+               alt = 'logo',
+               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')
+```
+
+# Section 1: Introduction
+This report analyses and forecasts a retail sales time series using the Prophet package in R. The dataset contains historical monthly retail sales values from 01/01/1992 to 01/05/2016. The goal using this data is to study the main features of the series, especially trend and seasonality, and then use Prophet to generate forecasts for future months.
+
+This dataset is a good choice for the time series analysis as it contains 293 monthly observations and shows visible changes over time. Furthermore, retail sales data is also linked to consumer behaviour, business activity, and seasonal shopping patterns.
+
+## 1.1 Loading and Preparing the Data
+
+The data used in this analysis was provided in a CSV file called `example_retail_sales.csv`. The file was placed in the `data/` folder of the project.
+
+The data contains the two column names required by Prophet: `ds` for the date variable and `y` for the observed value of sales.
+
+```{r}
+# Loads the required libraries
+library(readr)
+library(prophet)
+library(ggplot2)
+library(dplyr)
+
+# Loads the data from the csv file
+retail_sales_data <- read_csv("data/example_retail_sales.csv")
+
+# Converts the date column into Date format
+retail_sales_data <- retail_sales_data %>%
+  mutate(ds = as.Date(ds))
+
+# Checks the structure of the data
+str(retail_sales_data)
+
+# Views the first few rows
+head(retail_sales_data)
+```
+
+## 1.2 Visualising the Data
+
+We can visualise the full time series to understand its overall behaviour.
+
+```{r}
+# Basic plot of retail sales over time
+plot(retail_sales_data$ds, retail_sales_data$y, type = "l",
+     main = "Retail Sales Over Time",
+     xlab = "Date", ylab = "Retail Sales",
+     col = "blue", lwd = 2)
+```
+
+The plot shows a clear upward trend over time. It also shows a repeating seasonal pattern, with large peaks appearing regularly each year. The peaks near the end of each year are likely linked to stronger seasonal spending, such as holiday shopping for Christmas.
+
+## 1.3 Additional Exploration
+
+It is useful to look more closely at the series using a scatter and line plot and also fit a simple linear regression to understand the long-run direction of the data.
+
+```{r}
+# Add a time index for a simple regression model
+retail_sales_data$time_index <- 1:nrow(retail_sales_data)
+
+# Fit a linear regression model
+retail_sales_trend_model <- lm(y ~ time_index, data = retail_sales_data)
+summary(retail_sales_trend_model)
+```
+
+```{r}
+# Add fitted values from the linear model
+retail_sales_data$linear_fit <- predict(retail_sales_trend_model)
+
+# Plot actual data and fitted linear trend
+plot(retail_sales_data$ds, retail_sales_data$y, type = "l",
+     main = "Retail Sales with Linear Trend",
+     xlab = "Date", ylab = "Retail Sales",
+     col = "darkblue", lwd = 2)
+lines(retail_sales_data$ds, retail_sales_data$linear_fit,
+      col = "red", lwd = 2, lty = 2)
+legend("topleft", legend = c("Retail sales", "Linear trend"),
+       col = c("darkblue", "red"), lty = c(1, 2), lwd = 2, bty = "n")
+```
+
+The regression confirms that the series has a positive long-term trend. However, the linear trend line does not capture the seasonal peaks and troughs, so a more flexible time series model will be needed.
+
+# Section 2: Forecasting with Prophet
+
+## 2.1 Fitting the Prophet Model
+
+Now the Prophet model is fitted to the data.
+
+```{r}
+# Fit the Prophet model
+retail_sales_model <- prophet(retail_sales_data[, c("ds", "y")], yearly.seasonality = TRUE)
+```
+
+Prophet is useful here as it separates the time series into trend, seasonality, and uncertainty. This is suitable for retail sales as the data clearly has repeated yearly patterns.
+
+## 2.2 Creating Future Dataframes
+
+We then create future data frames to forecast retail sales for the next 12 months and the next 36 months.
+
+```{r}
+# Create a future dataframe with 12 additional months
+future_1yr <- make_future_dataframe(retail_sales_model, periods = 12, freq = "month")
+
+# Create a future dataframe for the next 36 months
+future_3yr <- make_future_dataframe(retail_sales_model, periods = 36, freq = "month")
+
+# Display the tail of the future dataframes
+tail(future_1yr)
+tail(future_3yr)
+```
+
+## 2.3 Forecasting and Plotting Results
+
+We use the `predict` function to forecast future values and then plot the results.
+
+```{r}
+# Make the 1 year forecast
+forecast_1yr <- predict(retail_sales_model, future_1yr)
+
+# Make the 3 year forecast
+forecast_3yr <- predict(retail_sales_model, future_3yr)
+
+# View the tail of the forecast data
+tail(forecast_1yr[, c("ds", "yhat", "yhat_lower", "yhat_upper")])
+tail(forecast_3yr[, c("ds", "yhat", "yhat_lower", "yhat_upper")])
+```
+
+### Plotting the forecasted data:
+
+```{r}
+# Plot the 1 year forecast
+plot(retail_sales_model, forecast_1yr)
+
+# Plot the 3 year forecast
+plot(retail_sales_model, forecast_3yr)
+```
+
+## 2.4 Analysis of Forecast Results
+
+**1 Year Forecast**
+
+The 1 year forecast continues the general upward movement in retail sales and preserves the strong yearly seasonal pattern. The model predicts that the largest values will continue to occur near the end of the year, which is consistent with the historical data. The uncertainty interval is present but still fairly controlled over this short horizon, so the short-term forecast appears reasonable.
+
+**3 Year Forecast**
+
+The 3 year forecast also shows continued growth together with repeated seasonal peaks and troughs. However, the uncertainty interval becomes wider as the forecast horizon increases. This means that while Prophet can project the general structure of the series, the exact future values become less certain further into the future. This is expected as retail sales can be affected by changes in inflation, income, business conditions, and consumer confidence.
+
+# Section 3: Component Analysis
+
+### Plotting forecast components (trend and seasonality):
+
+```{r}
+# Plot forecast components
+prophet_plot_components(retail_sales_model, forecast_1yr)
+```
+
+**Trend Component:**
+
+The trend component shows a strong long-term increase in retail sales over the sample period. This suggests that average spending rises over time, which may reflect population growth, economic expansion, inflation, or changes in consumption patterns. There are also some periods where the slope of the trend changes, showing that growth is not completely constant.
+
+**Yearly Seasonality:**
+
+The yearly seasonality graph shows a clear repeating pattern within each year. The strongest positive seasonal effects appear near the end of the calendar year, which is consistent with higher retail spending during the holiday period. There are also lower points earlier in the year when consumer spending is usually weaker.
+
+# Section 4: Extension Using a Log Transformation
+
+The size of the seasonal peaks appears to grow as the level of the series increases. This suggests that the variability may rise with the level of the data. A log transformation can sometimes help stabilise this.
+
+```{r}
+# Create a log-transformed version of the series
+retail_sales_log_data <- retail_sales_data[, c("ds", "y")]
+retail_sales_log_data$y <- log(retail_sales_log_data$y)
+
+# Fit Prophet on the log-transformed data
+retail_sales_log_model <- prophet(retail_sales_log_data, yearly.seasonality = TRUE)
+
+# Forecast 12 months ahead on the log scale
+future_log_1yr <- make_future_dataframe(retail_sales_log_model, periods = 12, freq = "month")
+forecast_log_1yr <- predict(retail_sales_log_model, future_log_1yr)
+```
+
+```{r}
+# Plot the forecast on the log scale
+plot(retail_sales_log_model, forecast_log_1yr)
+```
+
+The log transformed model produces a smoother series on the transformed scale. This suggests that taking logs might be useful when the variation increases as the level of the series rises.
+
+# Section 5: Interpretation
+
+The results from the graphs suggest that retail sales are influenced by both long-run growth and strong yearly seasonality trends. The upward trend indicates that the average level of retail sales has increased substantially over time. The yearly seasonal pattern shows that some months consistently have stronger performance than others, such as, at the end of the year.
+
+Prophet makes these components easy to separate and interpret. This helps to explain what the forecast is and why the forecast takes its particular shape. At the same time, the model is still limited because it only uses past values of the series. It does not directly include external factors such as inflation, recessions, interest rates, policy changes or financial crashes that can explain the sudden dip around 2008.
+
+# Section 6: Conclusion
+
+In this project, I used the Prophet model to analyse and forecast a monthly retail sales time series. The data showed and helped to draw two important features which were a strong upward trend and a clear yearly seasonal pattern. Prophet was able to capture both features and provide forecasts for the next 1 year and 3 years.The short-term forecast looked more reliable than the longer-term forecast because the uncertainty interval widened over time. The component plots gave useful insight into the main structure of the data, especially the strong end-of-year seasonal effect. I also explored a log transformation as an extension, which helped show how changing the scale can affect the behaviour of the model.
+
+Overall, this project showed that Prophet is a useful and accessible tool for practical time series forecasting. It works especially well when the data contains clear trend and seasonal structure.
+
+# References
+- Dataset source: <https://github.com/facebook/prophet/blob/main/examples/example_retail_sales.csv>
+- RStudio reference: <https://rmarkdown.rstudio.com/lesson-1.html>
+- Prophet quick start documentation: <https://facebook.github.io/prophet/docs/quick_start.html#r-api>
